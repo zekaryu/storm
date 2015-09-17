@@ -227,6 +227,25 @@ but have sub-modules that depend on storm-core.  Because of this the build needs
 You can still build in a single step, but the resulting packages may not be completely correct, or you might get
 compilation or test errors with missing classes, etc.
 
+## Prerequisites
+In order to build `storm` you need `python`, `ruby` and `nodejs`. In order to avoid an overful page we don't provide platform/OS specific installation instructions for those here. Please refer to you platform's/OS' documentation for support.
+
+The `ruby` package manager `rvm` and `nodejs` package manager `nvm` are for convenience and are used in the tests which run on [travis](https://travis-ci.org/apache/storm). They can be installed using `curl -L https://get.rvm.io | bash -s stable --autolibs=enabled && source ~/.profile` (see the [rvm installation instructions](https://github.com/rvm/rvm) for details) and `wget -qO- https://raw.githubusercontent.com/creationix/nvm/v0.26.1/install.sh | bash && source ~/.bashrc` (see the [nvm installation instructions](https://github.com/creationix/nvm) for details).
+
+With `rvm` and `nvm` installed you can run
+
+```sh
+rvm use 2.1.5 --install
+nvm install 0.12.2
+nvm use 0.12.2
+```
+
+in order to get started as fast as possible. Users can still install a specific version of `ruby` and/or `node` manually.
+
+## Building
+
+The following commands must be run from the top-level directory.
+
 The first step is to build/install the plugins and storm-core
 
 `mvn clean install -Pstorm-core`
@@ -251,6 +270,8 @@ You can also run tests selectively with `-Dtest=<test_name>`.  This works for bo
 > Tip: IDEs such as IntelliJ IDEA support a built-in Clojure REPL, which you can also use to run tests selectively.
 > Sometimes you may find that tests pass/fail depending on which REPL you use, which -- although frustrating --
 > can be helpful to narrow down errors.
+
+Unfortunately you might experience failures in clojure tests which are wrapped in the `maven-clojure-plugin` and thus doesn't provide too much useful output at first sight - you might end up with a maven test failure with an error message as unhelpful as `Clojure failed.`. In this case it's recommended to look into `target/test-reports` of the failed project to see what actual tests have failed or scroll through the maven output looking for obvious issues like missing binaries.
 
 
 <a name="packaging"></a>
