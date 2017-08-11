@@ -21,7 +21,7 @@
 <link href="/css/bootstrap-3.3.1.min.css" rel="stylesheet" type="text/css">
 <link href="/css/jquery.dataTables.1.10.4.min.css" rel="stylesheet" type="text/css">
 <link href="/css/dataTables.bootstrap.css" rel="stylesheet" type="text/css">
-<link href="/css/style.css" rel="stylesheet" type="text/css">
+<link href="/css/style.css?_ts=${packageTimestamp}" rel="stylesheet" type="text/css">
 <script src="/js/jquery-1.11.1.min.js" type="text/javascript"></script>
 <script src="/js/jquery.dataTables.1.10.4.min.js" type="text/javascript"></script>
 <script src="/js/jquery.cookies.2.2.0.min.js" type="text/javascript"></script>
@@ -31,7 +31,7 @@
 <script src="/js/jquery.blockUI.min.js" type="text/javascript"></script>
 <script src="/js/url.min.js" type="text/javascript"></script>
 <script src="/js/dataTables.bootstrap.min.js" type="text/javascript"></script>
-<script src="/js/script.js" type="text/javascript"></script>
+<script src="/js/script.js?_ts=${packageTimestamp}" type="text/javascript"></script>
 </head>
 <body>
 <div class="container-fluid">
@@ -40,6 +40,9 @@
   </div>
   <div class="row">
     <div id="result"></div>
+  </div>
+  <div>
+    <p id="page-rendered-at-timestamp"></p>
   </div>
 </div>
 </body>
@@ -56,7 +59,7 @@ $(document).ready(function() {
     var port = $.url("?port") || "*";
     var search_archived = $.url("?search-archived");
 
-    $.get("/templates/deep-search-result-page-template.html", function(template) {
+    getStatic("/templates/deep-search-result-page-template.html", function(template) {
         var checked;
         if (search_archived) {
             checked = "checked";
@@ -94,11 +97,26 @@ $(document).ready(function() {
             file.count = count;
             file.logviewerPort = logviewerPort;
             file.search_archived = search_archived;
+            if (file.matches == 0) {
+               file.resultNotFound = true;
+            }
             var searchTemplate = $(template).filter("#search-result-identified-template").html();
             var rendered = Mustache.render(searchTemplate, file);
             var elemId = elem_id_for_host(host);
             $("#"+elemId).remove();
-            $("#search-result-table > tbody").append(rendered);
+            if (file.resultNotFound) {
+                // if no result found,
+                // and there is no "aResult" or "noResult" element exists,
+                // append "resultNotFound" element
+                if (!$("#aResult").length && !$("#noResult").length) {
+                    $("#search-result-table > tbody").append(rendered);
+                }
+            } else {
+              // if a result found, remove "noResult" element,
+              // and append the result
+              $("#noResult").remove();
+              $("#search-result-table > tbody").append(rendered);
+            }
         }
 
 
@@ -120,7 +138,7 @@ $(document).ready(function() {
 
 
                 for (var host in distinct_hosts) {
-                    var searchURL = "http://"+host+":"+logviewerPort+"/deepSearch/"+id+"?search-string="+search+"&num-matches="+count+"&port="+port;
+                    var searchURL = "http://"+host+":"+logviewerPort+"/api/v1/deepSearch/"+id+"?search-string="+search+"&num-matches="+count+"&port="+port;
                     if(search_archived)
                         searchURL += "&search-archived=" + search_archived;
                     
@@ -150,6 +168,8 @@ $(document).ready(function() {
         }
     });
 });
+
+getPageRenderedTimestamp("page-rendered-at-timestamp");
 
 </script>
 </html>

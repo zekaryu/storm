@@ -21,6 +21,7 @@ Table of Contents
     * <a href="#packaging">Create a Storm distribution (packaging)</a>
 * <a href="#best-practices">Best practices</a>
     * <a href="#best-practices-testing">Testing</a>
+    * <a href="#best-practices-versions">Version Changes</a>
 * <a href="#tools">Tools</a>
     * <a href="#code-repositories">Source code repositories (git)</a>
     * <a href="#issue-tracking">Issue tracking (JIRA)</a>
@@ -179,7 +180,7 @@ your fork up to date with the latest changes of the upstream (official) `storm` 
 
 ### Approve a pull request
 
-[BYLAWS](http://storm.apache.org/documentation/BYLAWS.html) describes the condition of approval for code / non-code change. 
+[BYLAWS](http://storm.apache.org/contribute/BYLAWS.html) describes the condition of approval for code / non-code change. 
 
 Please refer Approvals -> Actions section for more details.
 
@@ -213,14 +214,9 @@ To pull in a merge request you should generally follow the command line instruct
         $ git pull <remote_repo_url> <remote_branch>
     You can use `./dev-tools/storm-merge.py <pull-number>` to produce the above command most of the time.
 
-4.  Assuming that the pull request merges without any conflicts:
-    Update the top-level `CHANGELOG.md`, and add in the JIRA ticket number (example: `STORM-1234`) and ticket
-    description to the change log.  Make sure that you place the JIRA ticket number in the commit comments where
-    applicable.
+4. Run any sanity tests that you think are needed.
 
-5. Run any sanity tests that you think are needed.
-
-6. Once you are confident that everything is ok, you can merge your local test branch into your local `master` branch,
+5. Once you are confident that everything is ok, you can merge your local test branch into your local `master` branch,
    and push the changes back to the official Apache repo.
 
         # Pull request looks ok, change log was updated, etc.  We are ready for pushing.
@@ -232,7 +228,7 @@ To pull in a merge request you should generally follow the command line instruct
         # automatically a short while after you have pushed to the Apache repo.
         $ git push origin master
 
-7. The last step is updating the corresponding JIRA ticket.  [Go to JIRA](https://issues.apache.org/jira/browse/STORM)
+6. The last step is updating the corresponding JIRA ticket.  [Go to JIRA](https://issues.apache.org/jira/browse/STORM)
    and resolve the ticket.  Be sure to set the `Fix Version/s` field to the version you pushed your changes to.
    It is usually good practice to thank the author of the pull request for their contribution if you have not done
    so already.
@@ -271,7 +267,7 @@ If you wish to skip the unit tests you can do this by adding `-DskipTests` to th
 In case you modified `storm.thrift`, you have to regenerate thrift code as java and python code before compiling whole project.
 
 ```sh
-cd storm-core/src
+cd storm-client/src
 sh genthrift.sh
 ```
 
@@ -366,6 +362,19 @@ Storm using tracked topologies.  Here, the key is the `tracked-wait` function: i
 tuples have been emitted by the spouts _and_ the topology is idle (i.e. no tuples have been emitted nor will be emitted
 without further input).  Note that you should not use tracked topologies for topologies that have tick tuples.
 
+<a name="best-practices-versions"></a>
+
+## Version Changes
+
+An easy way to change versions across all pom files, for example from `1.0.0-SNAPSHOT` to `1.0.0`, is with the maven
+versions plugin.
+
+```
+mvn versions:set #This prompts for a new version
+mvn versions:commit
+```
+
+[Plugin Documentation] (http://www.mojohaus.org/versions-maven-plugin/)
 
 <a name="tools"></a>
 

@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.redis.common.config;
 
 import redis.clients.jedis.Protocol;
@@ -25,7 +26,6 @@ import java.io.Serializable;
  * Configuration for JedisPool.
  */
 public class JedisPoolConfig implements Serializable {
-    public static final String DEFAULT_HOST = "127.0.0.1";
 
     private String host;
     private int port;
@@ -37,7 +37,7 @@ public class JedisPoolConfig implements Serializable {
     public JedisPoolConfig() {
     }
     /**
-     * Constructor
+     * Constructor.
      * <p/>
      * You can use JedisPoolConfig.Builder() for leaving some fields to apply default value.
      *
@@ -99,7 +99,7 @@ public class JedisPoolConfig implements Serializable {
      * Builder for initializing JedisPoolConfig.
      */
     public static class Builder {
-        private String host = DEFAULT_HOST;
+        private String host = Protocol.DEFAULT_HOST;
         private int port = Protocol.DEFAULT_PORT;
         private int timeout = Protocol.DEFAULT_TIMEOUT;
         private int database = Protocol.DEFAULT_DATABASE;

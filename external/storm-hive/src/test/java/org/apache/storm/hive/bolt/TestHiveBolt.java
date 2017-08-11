@@ -132,11 +132,11 @@ public class TestHiveBolt {
         // 1) Basic
         HiveEndPoint endPt = new HiveEndPoint(metaStoreURI, dbName, tblName
                                               , Arrays.asList(partitionVals.split(",")));
-        StreamingConnection connection = endPt.newConnection(false, null); //shouldn't throw
+        StreamingConnection connection = endPt.newConnection(false, (HiveConf)null); //shouldn't throw
         connection.close();
         // 2) Leave partition unspecified
         endPt = new HiveEndPoint(metaStoreURI, dbName, tblName, null);
-        endPt.newConnection(false, null).close(); // should not throw
+        endPt.newConnection(false, (HiveConf)null).close(); // should not throw
     }
 
     @Test
@@ -204,7 +204,7 @@ public class TestHiveBolt {
     @Test
     public void testWithTimeformat()
         throws Exception {
-        String[] partNames1 = {"date"};
+        String[] partNames1 = {"dt"};
         String timeFormat = "yyyy/MM/dd";
         HiveSetupUtil.dropDB(conf,dbName1);
         HiveSetupUtil.createDbAndTable(conf, dbName1, tblName1, null,
@@ -213,8 +213,9 @@ public class TestHiveBolt {
             .withColumnFields(new Fields(colNames))
             .withTimeAsPartitionField(timeFormat);
         HiveOptions hiveOptions = new HiveOptions(metaStoreURI,dbName1,tblName1,mapper)
-            .withTxnsPerBatch(2)
-            .withBatchSize(1);
+                .withTxnsPerBatch(2)
+                .withBatchSize(1)
+                .withMaxOpenConnections(1);
         bolt = new HiveBolt(hiveOptions);
         bolt.prepare(config,null,collector);
         Integer id = 100;
@@ -319,7 +320,7 @@ public class TestHiveBolt {
 
         //This forces a failure of all the flush attempts
         doThrow(new InterruptedException()).when(spyBolt).flushAllWriters(true);
-        doThrow(new Exception()).when(spyBolt).flushAndCloseWriters();
+
 
         spyBolt.prepare(config, null, new OutputCollector(collector));
 
@@ -383,7 +384,7 @@ public class TestHiveBolt {
         //The tick should NOT cause any acks since the batch was empty except for acking itself
         Tuple mockTick = MockTupleHelpers.mockTickTuple();
         bolt.execute(mockTick);
-        verify(collector).ack(mockTick);
+        verifyZeroInteractions(collector);
 
         bolt.cleanup();
     }

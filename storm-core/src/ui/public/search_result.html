@@ -21,7 +21,7 @@
 <link href="/css/bootstrap-3.3.1.min.css" rel="stylesheet" type="text/css">
 <link href="/css/jquery.dataTables.1.10.4.min.css" rel="stylesheet" type="text/css">
 <link href="/css/dataTables.bootstrap.css" rel="stylesheet" type="text/css">
-<link href="/css/style.css" rel="stylesheet" type="text/css">
+<link href="/css/style.css?_ts=${packageTimestamp}" rel="stylesheet" type="text/css">
 <script src="/js/jquery-1.11.1.min.js" type="text/javascript"></script>
 <script src="/js/jquery.dataTables.1.10.4.min.js" type="text/javascript"></script>
 <script src="/js/jquery.cookies.2.2.0.min.js" type="text/javascript"></script>
@@ -30,7 +30,7 @@
 <script src="/js/jquery.blockUI.min.js" type="text/javascript"></script>
 <script src="/js/url.min.js" type="text/javascript"></script>
 <script src="/js/dataTables.bootstrap.min.js" type="text/javascript"></script>
-<script src="/js/script.js" type="text/javascript"></script>
+<script src="/js/script.js?_ts=${packageTimestamp}" type="text/javascript"></script>
 </head>
 <body>
 <div class="container-fluid">
@@ -39,6 +39,9 @@
   </div>
   <div class="row">
     <div id="result"></div>
+  </div>
+  <div>
+    <p id="page-rendered-at-timestamp"></p>
   </div>
 </div>
 </body>
@@ -49,7 +52,7 @@ $(document).ready(function() {
     var count = $.url("?count") || 2;
     var searchArchived = $.url("?searchArchived") || "";
 
-    $.get("/templates/search-result-page-template.html", function(template) {
+    getStatic("/templates/search-result-page-template.html", function(template) {
         $("#search-form").append(Mustache.render($(template).filter("#search-form-template").html(),{id: id, search: search, count: count, searchArchived: searchArchived}));
 
         var result = $("#result");
@@ -68,9 +71,9 @@ $(document).ready(function() {
              var port = response.hostPortList[index].port;
              var elemId = response.hostPortList[index].elemId;
              var file = id+"/"+port+"/worker.log";
-             var searchURL = "http://"+host+":"+logviewerPort+"/search/"+encodeURIComponent(file)+"?search-string="+search+"&num-matches="+count;
+             var searchURL = "http://"+host+":"+logviewerPort+"/api/v1/search?file="+encodeURIComponent(file)+"&search-string="+search+"&num-matches="+count;
              if (searchArchived != "") {
-               searchURL = "http://"+host+":"+logviewerPort+"/deepSearch/"+id+"?search-string="+search+"&num-matches="+count+"&search-archived=true&port="+port;
+               searchURL = "http://"+host+":"+logviewerPort+"/api/v1/deepSearch/"+id+"?search-string="+search+"&num-matches="+count+"&search-archived=true&port="+port;
              }
 
              $.ajax({dataType: "json",
@@ -96,5 +99,8 @@ $(document).ready(function() {
        });
     });
   });
+
+  getPageRenderedTimestamp("page-rendered-at-timestamp");
+
 </script>
 </html>

@@ -14,20 +14,23 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 (ns org.apache.storm.command.shell-submission
-  (:import [org.apache.storm StormSubmitter])
-  (:use [org.apache.storm thrift util config log zookeeper])
+  (:import [org.apache.storm StormSubmitter]
+           [org.apache.storm.utils ServerUtils]
+           [org.apache.storm.zookeeper Zookeeper])
+  (:use [org.apache.storm util config log])
   (:require [clojure.string :as str])
+  (:import [org.apache.storm.utils ConfigUtils])
   (:gen-class))
 
 
 (defn -main [^String tmpjarpath & args]
-  (let [conf (read-storm-config)
-        zk-leader-elector (zk-leader-elector conf)
+  (let [conf (clojurify-structure (ConfigUtils/readStormConfig))
+        ; since this is not a purpose to add to leader lock queue, passing nil as blob-store is ok
+        zk-leader-elector (Zookeeper/zkLeaderElector conf nil)
         leader-nimbus (.getLeader zk-leader-elector)
         host (.getHost leader-nimbus)
         port (.getPort leader-nimbus)
         no-op (.close zk-leader-elector)
         jarpath (StormSubmitter/submitJar conf tmpjarpath)
         args (concat args [host port jarpath])]
-    (exec-command! (str/join " " args))
-    ))
+    (ServerUtils/execCommand args)))

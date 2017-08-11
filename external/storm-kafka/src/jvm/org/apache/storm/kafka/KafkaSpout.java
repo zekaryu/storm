@@ -17,17 +17,18 @@
  */
 package org.apache.storm.kafka;
 
+import com.google.common.base.Strings;
+
 import org.apache.storm.Config;
+import org.apache.storm.kafka.PartitionManager.KafkaMessageId;
+import org.apache.storm.kafka.trident.GlobalPartitionInformation;
 import org.apache.storm.metric.api.IMetric;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
 import org.apache.storm.topology.OutputFieldsDeclarer;
 import org.apache.storm.topology.base.BaseRichSpout;
-import com.google.common.base.Strings;
-import kafka.message.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.storm.kafka.PartitionManager.KafkaMessageId;
 
 import java.util.*;
 
@@ -40,7 +41,7 @@ public class KafkaSpout extends BaseRichSpout {
         NO_EMITTED
     }
 
-    public static final Logger LOG = LoggerFactory.getLogger(KafkaSpout.class);
+    private static final Logger LOG = LoggerFactory.getLogger(KafkaSpout.class);
 
     SpoutConfig _spoutConfig;
     SpoutOutputCollector _collector;
@@ -57,10 +58,10 @@ public class KafkaSpout extends BaseRichSpout {
     }
 
     @Override
-    public void open(Map conf, final TopologyContext context, final SpoutOutputCollector collector) {
+    public void open(Map<String, Object> conf, final TopologyContext context, final SpoutOutputCollector collector) {
         _collector = collector;
         String topologyInstanceId = context.getStormId();
-        Map stateConf = new HashMap(conf);
+        Map<String, Object> stateConf = new HashMap<>(conf);
         List<String> zkServers = _spoutConfig.zkServers;
         if (zkServers == null) {
             zkServers = (List<String>) conf.get(Config.STORM_ZOOKEEPER_SERVERS);
@@ -81,11 +82,11 @@ public class KafkaSpout extends BaseRichSpout {
         if (_spoutConfig.hosts instanceof StaticHosts) {
             _coordinator = new StaticCoordinator(_connections, conf,
                     _spoutConfig, _state, context.getThisTaskIndex(),
-                    totalTasks, topologyInstanceId);
+                    totalTasks, context.getThisTaskId(), topologyInstanceId);
         } else {
             _coordinator = new ZkCoordinator(_connections, conf,
                     _spoutConfig, _state, context.getThisTaskIndex(),
-                    totalTasks, topologyInstanceId);
+                    totalTasks, context.getThisTaskId(), topologyInstanceId);
         }
 
         context.registerMetric("kafkaOffset", new IMetric() {
@@ -100,7 +101,7 @@ public class KafkaSpout extends BaseRichSpout {
                 }
                 _kafkaOffsetMetric.refreshPartitions(latestPartitions);
                 for (PartitionManager pm : pms) {
-                    _kafkaOffsetMetric.setLatestEmittedOffset(pm.getPartition(), pm.lastCompletedOffset());
+                    _kafkaOffsetMetric.setOffsetData(pm.getPartition(), pm.getOffsetData());
                 }
                 return _kafkaOffsetMetric.getValueAndReset();
             }
@@ -156,12 +157,27 @@ public class KafkaSpout extends BaseRichSpout {
         }
     }
 
+    private PartitionManager getManagerForPartition(int partition) {
+        for (PartitionManager partitionManager: _coordinator.getMyManagedPartitions()) {
+            if (partitionManager.getPartition().partition == partition) {
+                return partitionManager;
+            }
+        }
+        return null;
+    }
+
     @Override
     public void ack(Object msgId) {
         KafkaMessageId id = (KafkaMessageId) msgId;
         PartitionManager m = _coordinator.getManager(id.partition);
         if (m != null) {
             m.ack(id.offset);
+        } else {
+            // managers for partitions changed - try to find new manager responsible for that partition
+            PartitionManager newManager = getManagerForPartition(id.partition.partition);
+            if (newManager != null) {
+                newManager.ack(id.offset);
+            }
         }
     }
 
@@ -171,6 +187,12 @@ public class KafkaSpout extends BaseRichSpout {
         PartitionManager m = _coordinator.getManager(id.partition);
         if (m != null) {
             m.fail(id.offset);
+        } else {
+            // managers for partitions changed - try to find new manager responsible for that partition
+            PartitionManager newManager = getManagerForPartition(id.partition.partition);
+            if (newManager != null) {
+                newManager.fail(id.offset);
+            }
         }
     }
 
@@ -186,6 +208,47 @@ public class KafkaSpout extends BaseRichSpout {
         } else {
             declarer.declare(_spoutConfig.scheme.getOutputFields());
         }
+    }
+
+    @Override
+    public Map<String, Object> getComponentConfiguration () {
+        Map<String, Object> configuration = super.getComponentConfiguration();
+        if (configuration == null) {
+            configuration = new HashMap<>();
+        }
+        String configKeyPrefix = "config.";
+        configuration.put(configKeyPrefix + "topics", this._spoutConfig.topic);
+        StringBuilder zkServers = new StringBuilder();
+        if (_spoutConfig.zkServers != null && _spoutConfig.zkServers.size() > 0) {
+            for (String zkServer : this._spoutConfig.zkServers) {
+                zkServers.append(zkServer + ":" + this._spoutConfig.zkPort + ",");
+            }
+            configuration.put(configKeyPrefix + "zkServers", zkServers.toString());
+        }
+        BrokerHosts brokerHosts = this._spoutConfig.hosts;
+        String zkRoot = this._spoutConfig.zkRoot + "/" + this._spoutConfig.id;
+        if (brokerHosts instanceof ZkHosts) {
+            ZkHosts zkHosts = (ZkHosts) brokerHosts;
+            configuration.put(configKeyPrefix + "zkNodeBrokers", zkHosts.brokerZkPath);
+        } else if (brokerHosts instanceof StaticHosts) {
+            StaticHosts staticHosts = (StaticHosts) brokerHosts;
+            GlobalPartitionInformation globalPartitionInformation = staticHosts.getPartitionInformation();
+            boolean useTopicNameForPath = globalPartitionInformation.getbUseTopicNameForPartitionPathId();
+            if (useTopicNameForPath) {
+                zkRoot += ("/" + this._spoutConfig.topic);
+            }
+            List<Partition> partitions = globalPartitionInformation.getOrderedPartitions();
+            StringBuilder staticPartitions = new StringBuilder();
+            StringBuilder leaderHosts = new StringBuilder();
+            for (Partition partition: partitions) {
+                staticPartitions.append(partition.partition + ",");
+                leaderHosts.append(partition.host.host + ":" + partition.host.port).append(",");
+            }
+            configuration.put(configKeyPrefix + "partitions", staticPartitions.toString());
+            configuration.put(configKeyPrefix + "leaders", leaderHosts.toString());
+        }
+        configuration.put(configKeyPrefix + "zkRoot", zkRoot);
+        return configuration;
     }
 
     private void commit() {

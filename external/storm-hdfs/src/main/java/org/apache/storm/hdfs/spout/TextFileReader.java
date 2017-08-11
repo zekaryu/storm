@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 // Todo: Track file offsets instead of line number
-class TextFileReader extends AbstractFileReader {
+public class TextFileReader extends AbstractFileReader {
   public static final String[] defaultFields = {"line"};
   public static final String CHARSET = "hdfsspout.reader.charset";
   public static final String BUFFER_SIZE = "hdfsspout.reader.buffer.bytes";
@@ -43,15 +43,15 @@ class TextFileReader extends AbstractFileReader {
   private final Logger LOG = LoggerFactory.getLogger(TextFileReader.class);
   private TextFileReader.Offset offset;
 
-  public TextFileReader(FileSystem fs, Path file, Map conf) throws IOException {
+  public TextFileReader(FileSystem fs, Path file, Map<String, Object> conf) throws IOException {
     this(fs, file, conf, new TextFileReader.Offset(0,0) );
   }
 
-  public TextFileReader(FileSystem fs, Path file, Map conf, String startOffset) throws IOException {
+  public TextFileReader(FileSystem fs, Path file, Map<String, Object> conf, String startOffset) throws IOException {
     this(fs, file, conf, new TextFileReader.Offset(startOffset) );
   }
 
-  private TextFileReader(FileSystem fs, Path file, Map conf, TextFileReader.Offset startOffset)
+  private TextFileReader(FileSystem fs, Path file, Map<String, Object> conf, TextFileReader.Offset startOffset)
           throws IOException {
     super(fs, file);
     offset = startOffset;

@@ -17,9 +17,29 @@
  */
 package org.apache.storm.kafka;
 
-import org.apache.storm.metric.api.IMetric;
-import org.apache.storm.utils.Utils;
 import com.google.common.base.Preconditions;
+
+import org.apache.storm.kafka.trident.GlobalPartitionInformation;
+import org.apache.storm.kafka.trident.IBrokerReader;
+import org.apache.storm.kafka.trident.StaticBrokerReader;
+import org.apache.storm.kafka.trident.ZkBrokerReader;
+import org.apache.storm.metric.api.IMetric;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.nio.channels.UnresolvedAddressException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
 import kafka.api.FetchRequest;
 import kafka.api.FetchRequestBuilder;
 import kafka.api.PartitionOffsetRequestInfo;
@@ -29,32 +49,23 @@ import kafka.javaapi.OffsetRequest;
 import kafka.javaapi.consumer.SimpleConsumer;
 import kafka.javaapi.message.ByteBufferMessageSet;
 import kafka.message.Message;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.storm.kafka.trident.GlobalPartitionInformation;
-import org.apache.storm.kafka.trident.IBrokerReader;
-import org.apache.storm.kafka.trident.StaticBrokerReader;
-import org.apache.storm.kafka.trident.ZkBrokerReader;
-
-import java.io.IOException;
-import java.net.ConnectException;
-import java.net.SocketTimeoutException;
-import java.nio.ByteBuffer;
-import java.nio.channels.UnresolvedAddressException;
-import java.util.*;
 
 
 public class KafkaUtils {
 
-    public static final Logger LOG = LoggerFactory.getLogger(KafkaUtils.class);
+    private static final Logger LOG = LoggerFactory.getLogger(KafkaUtils.class);
     private static final int NO_OFFSET = -5;
 
+    //suppress default constructor for noninstantiablility
+    private KafkaUtils(){
+        throw new AssertionError();
+    }
 
-    public static IBrokerReader makeBrokerReader(Map stormConf, KafkaConfig conf) {
+    public static IBrokerReader makeBrokerReader(Map<String, Object> topoConf, KafkaConfig conf) {
         if (conf.hosts instanceof StaticHosts) {
             return new StaticBrokerReader(conf.topic, ((StaticHosts) conf.hosts).getPartitionInformation());
         } else {
-            return new ZkBrokerReader(stormConf, conf.topic, (ZkHosts) conf.hosts);
+            return new ZkBrokerReader(topoConf, conf.topic, (ZkHosts) conf.hosts);
         }
     }
 
@@ -80,7 +91,7 @@ public class KafkaUtils {
     }
 
     public static class KafkaOffsetMetric implements IMetric {
-        Map<Partition, Long> _partitionToOffset = new HashMap<Partition, Long>();
+        Map<Partition, PartitionManager.OffsetData> _partitionToOffset = new HashMap<Partition, PartitionManager.OffsetData>();
         Set<Partition> _partitions;
         DynamicPartitionConnections _connections;
 
@@ -88,8 +99,8 @@ public class KafkaUtils {
             _connections = connections;
         }
 
-        public void setLatestEmittedOffset(Partition partition, long offset) {
-            _partitionToOffset.put(partition, offset);
+        public void setOffsetData(Partition partition, PartitionManager.OffsetData offsetData) {
+            _partitionToOffset.put(partition, offsetData);
         }
 
         private class TopicMetrics {
@@ -97,15 +108,16 @@ public class KafkaUtils {
             long totalEarliestTimeOffset = 0;
             long totalLatestTimeOffset = 0;
             long totalLatestEmittedOffset = 0;
+            long totalLatestCompletedOffset = 0;
         }
 
         @Override
         public Object getValueAndReset() {
             try {
-                HashMap ret = new HashMap();
+                HashMap<String, Long> ret = new HashMap<>();
                 if (_partitions != null && _partitions.size() == _partitionToOffset.size()) {
                     Map<String,TopicMetrics> topicMetricsMap = new TreeMap<String, TopicMetrics>();
-                    for (Map.Entry<Partition, Long> e : _partitionToOffset.entrySet()) {
+                    for (Map.Entry<Partition, PartitionManager.OffsetData> e : _partitionToOffset.entrySet()) {
                         Partition partition = e.getKey();
                         SimpleConsumer consumer = _connections.getConnection(partition);
                         if (consumer == null) {
@@ -118,8 +130,9 @@ public class KafkaUtils {
                             LOG.warn("No data found in Kafka Partition " + partition.getId());
                             return null;
                         }
-                        long latestEmittedOffset = e.getValue();
-                        long spoutLag = latestTimeOffset - latestEmittedOffset;
+                        long latestEmittedOffset = e.getValue().latestEmittedOffset;
+                        long latestCompletedOffset = e.getValue().latestCompletedOffset;
+                        long spoutLag = latestTimeOffset - latestCompletedOffset;
                         String topic = partition.topic;
                         String metricPath = partition.getId();
                         //Handle the case where Partition Path Id does not contain topic name Partition.getId() == "partition_" + partition
@@ -130,6 +143,7 @@ public class KafkaUtils {
                         ret.put(metricPath + "/" + "earliestTimeOffset", earliestTimeOffset);
                         ret.put(metricPath + "/" + "latestTimeOffset", latestTimeOffset);
                         ret.put(metricPath + "/" + "latestEmittedOffset", latestEmittedOffset);
+                        ret.put(metricPath + "/" + "latestCompletedOffset", latestCompletedOffset);
 
                         if (!topicMetricsMap.containsKey(partition.topic)) {
                             topicMetricsMap.put(partition.topic,new TopicMetrics());
@@ -140,6 +154,7 @@ public class KafkaUtils {
                         topicMetrics.totalEarliestTimeOffset += earliestTimeOffset;
                         topicMetrics.totalLatestTimeOffset += latestTimeOffset;
                         topicMetrics.totalLatestEmittedOffset += latestEmittedOffset;
+                        topicMetrics.totalLatestCompletedOffset += latestCompletedOffset;
                     }
 
                     for(Map.Entry<String, TopicMetrics> e : topicMetricsMap.entrySet()) {
@@ -149,6 +164,7 @@ public class KafkaUtils {
                         ret.put(topic + "/" + "totalEarliestTimeOffset", topicMetrics.totalEarliestTimeOffset);
                         ret.put(topic + "/" + "totalLatestTimeOffset", topicMetrics.totalLatestTimeOffset);
                         ret.put(topic + "/" + "totalLatestEmittedOffset", topicMetrics.totalLatestEmittedOffset);
+                        ret.put(topic + "/" + "totalLatestCompletedOffset", topicMetrics.totalLatestCompletedOffset);
                     }
 
                     return ret;
@@ -179,7 +195,7 @@ public class KafkaUtils {
         int partitionId = partition.partition;
         FetchRequestBuilder builder = new FetchRequestBuilder();
         FetchRequest fetchRequest = builder.addFetch(topic, partitionId, offset, config.fetchSizeBytes).
-                clientId(config.clientId).maxWait(config.fetchMaxWait).build();
+                clientId(config.clientId).maxWait(config.fetchMaxWait).minBytes(config.minFetchByte).build();
         FetchResponse fetchResponse;
         try {
             fetchResponse = consumer.fetch(fetchRequest);
@@ -209,6 +225,7 @@ public class KafkaUtils {
         } else {
             msgs = fetchResponse.messageSet(topic, partitionId);
         }
+        LOG.debug("Messages fetched. [config = {}], [consumer = {}], [partition = {}], [offset = {}], [msgs = {}]", config, consumer, partition, offset, msgs);
         return msgs;
     }
 
@@ -241,7 +258,8 @@ public class KafkaUtils {
     }
 
 
-    public static List<Partition> calculatePartitionsForTask(List<GlobalPartitionInformation> partitons, int totalTasks, int taskIndex) {
+    public static List<Partition> calculatePartitionsForTask(List<GlobalPartitionInformation> partitons,
+            int totalTasks, int taskIndex, int taskId) {
         Preconditions.checkArgument(taskIndex < totalTasks, "task index must be less that total tasks");
         List<Partition> taskPartitions = new ArrayList<Partition>();
         List<Partition> partitions = new ArrayList<Partition>();
@@ -256,20 +274,20 @@ public class KafkaUtils {
             Partition taskPartition = partitions.get(i);
             taskPartitions.add(taskPartition);
         }
-        logPartitionMapping(totalTasks, taskIndex, taskPartitions);
+        logPartitionMapping(totalTasks, taskIndex, taskPartitions, taskId);
         return taskPartitions;
     }
 
-    private static void logPartitionMapping(int totalTasks, int taskIndex, List<Partition> taskPartitions) {
-        String taskPrefix = taskId(taskIndex, totalTasks);
+    private static void logPartitionMapping(int totalTasks, int taskIndex, List<Partition> taskPartitions, int taskId) {
+        String taskPrefix = taskPrefix(taskIndex, totalTasks, taskId);
         if (taskPartitions.isEmpty()) {
-            LOG.warn(taskPrefix + "no partitions assigned");
+            LOG.warn(taskPrefix + " no partitions assigned");
         } else {
-            LOG.info(taskPrefix + "assigned " + taskPartitions);
+            LOG.info(taskPrefix + " assigned " + taskPartitions);
         }
     }
 
-    public static String taskId(int taskIndex, int totalTasks) {
-        return "Task [" + (taskIndex + 1) + "/" + totalTasks + "] ";
+    public static String taskPrefix(int taskIndex, int totalTasks, int taskId) {
+        return "Task [" + (taskIndex + 1) + "/" + totalTasks + "], Task-ID: " + taskId;
     }
 }
